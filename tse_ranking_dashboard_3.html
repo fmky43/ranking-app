@@ -211,6 +211,7 @@ let state = {
   githubConfig: loadFromStorage(STORAGE_GITHUB, { token: '', owner: 'fmky43', repo: 'ranking-app', enabled: false }),
   githubLoading: false,
   reportGenerated: false,
+  reportData: null,
   selectedDate: '',
   inputText: '',
   activeTab: 'input',
@@ -449,13 +450,33 @@ function detectSignals() {
   return signals;
 }
 
+function getWeekOfDates(referenceStr) {
+  const ref = new Date(referenceStr.replace(/\//g, '-') + 'T00:00:00');
+  const day = ref.getDay();
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const monday = new Date(ref);
+  monday.setDate(ref.getDate() + diffToMon);
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  function fmt(d) { return d.toISOString().slice(0, 10).replace(/-/g, '/'); }
+  return { monday: monday, friday: friday, weekStart: fmt(monday), weekEnd: fmt(friday) };
+}
+
 function getWeeklyReport(signals) {
-  const sortedDates = Object.keys(state.data).sort();
-  if (sortedDates.length === 0) return null;
+  const allDates = Object.keys(state.data).sort();
+  if (allDates.length === 0) return null;
+
+  // 最新日付からその週の月〜金を算出してフィルタリング
+  const week = getWeekOfDates(allDates[allDates.length - 1]);
+  const weekDates = allDates.filter(function(dateStr) {
+    const d = new Date(dateStr.replace(/\//g, '-') + 'T00:00:00');
+    return d >= week.monday && d <= week.friday;
+  });
+  if (weekDates.length === 0) return null;
 
   const allNewRankIn = [], allRankOut = [], allVolumeIncrease = [];
   const allContinueCodes = new Set();
-  sortedDates.forEach(function(date) {
+  weekDates.forEach(function(date) {
     if (signals[date]) {
       signals[date].newRankIn.forEach(function(item) { allNewRankIn.push(Object.assign({}, item, { date: date })); });
       signals[date].rankOut.forEach(function(item) { allRankOut.push(Object.assign({}, item, { date: date })); });
@@ -463,7 +484,15 @@ function getWeeklyReport(signals) {
       signals[date].multiWeekContinue.forEach(function(item) { allContinueCodes.add(item.code); });
     }
   });
-  return { dates: sortedDates, newRankIn: allNewRankIn, rankOut: allRankOut, volumeIncrease: allVolumeIncrease, continueCodes: Array.from(allContinueCodes) };
+  return {
+    dates: weekDates,
+    weekStart: week.weekStart,
+    weekEnd: week.weekEnd,
+    newRankIn: allNewRankIn,
+    rankOut: allRankOut,
+    volumeIncrease: allVolumeIncrease,
+    continueCodes: Array.from(allContinueCodes)
+  };
 }
 
 // ============================================
@@ -1005,38 +1034,44 @@ function renderStockTrackTab() {
 }
 
 function generateReport() {
+  const signals = detectSignals();
+  state.reportData = getWeeklyReport(signals);
   state.reportGenerated = true;
   renderContent();
 }
 
 function renderReportTab() {
-  const dataCount = Object.keys(state.data).length;
-
-  if (dataCount === 0) {
+  const allDates = Object.keys(state.data).sort();
+  if (allDates.length === 0) {
     return '<div class="empty-state">📥 まずデータを入力してください</div>';
   }
 
   if (!state.reportGenerated) {
-    const sortedDates = Object.keys(state.data).sort();
+    // ボタン画面：対象週を事前に表示
+    const week = getWeekOfDates(allDates[allDates.length - 1]);
+    const weekCount = allDates.filter(function(d) {
+      const dt = new Date(d.replace(/\//g, '-') + 'T00:00:00');
+      return dt >= week.monday && dt <= week.friday;
+    }).length;
     return '<div class="card" style="text-align:center;padding:48px 24px;">' +
       '<div style="font-size:3rem;margin-bottom:16px;">📊</div>' +
-      '<p style="color:#cbd5e1;margin-bottom:8px;">登録済みデータ：<strong style="color:#fbbf24;">' + dataCount + '日分</strong></p>' +
-      '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:28px;">期間：' + sortedDates[0] + ' ～ ' + sortedDates[sortedDates.length - 1] + '</p>' +
+      '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:6px;">対象週</p>' +
+      '<p style="color:#fbbf24;font-size:1.2rem;font-weight:bold;margin-bottom:8px;">' + week.weekStart + ' ～ ' + week.weekEnd + '</p>' +
+      '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:28px;">この週のデータ：' + weekCount + '日分</p>' +
       '<button class="btn btn-primary" style="max-width:280px;margin:0 auto;" onclick="generateReport()">週間レポートを生成する</button>' +
       '</div>';
   }
 
-  const signals = detectSignals();
-  const report = getWeeklyReport(signals);
+  const report = state.reportData;
   if (!report) return '<div class="empty-state">レポートを生成できませんでした</div>';
 
   let html = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
-    '<button class="btn btn-gray btn-sm" onclick="state.reportGenerated=false;renderContent()">🔄 再生成</button>' +
+    '<button class="btn btn-gray btn-sm" onclick="state.reportGenerated=false;state.reportData=null;renderContent()">🔄 再生成</button>' +
     '</div>';
 
   html += '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;">' +
     '<h2 style="font-size:1.5rem;">📊 週間レポート</h2>' +
-    '<p style="color:#cbd5e1;">期間：' + report.dates[0] + ' ～ ' + report.dates[report.dates.length - 1] + '</p>' +
+    '<p style="color:#cbd5e1;">対象週：' + report.weekStart + ' ～ ' + report.weekEnd + '（' + report.dates.length + '日分）</p>' +
     '</div>';
 
   html += '<div class="stat-grid">' +
@@ -1137,8 +1172,8 @@ function drawCharts() {
     });
   }
 
-  if (state.activeTab === 'report') {
-    const totalData = sortedDates.map(function(date) {
+  if (state.activeTab === 'report' && state.reportData) {
+    const totalData = state.reportData.dates.map(function(date) {
       return { date: date.substring(5), volume: data[date].amounts.reduce(function(a, b) { return a + b; }, 0) };
     });
     drawBarChart('chart-report-total', totalData, 'volume', { color: '#10b981' });
