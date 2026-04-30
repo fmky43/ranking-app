@@ -210,6 +210,7 @@ let state = {
   customStockNames: loadFromStorage(STORAGE_NAMES, {}),
   githubConfig: loadFromStorage(STORAGE_GITHUB, { token: '', owner: 'fmky43', repo: 'ranking-app', enabled: false }),
   githubLoading: false,
+  reportGenerated: false,
   selectedDate: '',
   inputText: '',
   activeTab: 'input',
@@ -451,8 +452,6 @@ function detectSignals() {
 function getWeeklyReport(signals) {
   const sortedDates = Object.keys(state.data).sort();
   if (sortedDates.length === 0) return null;
-  const lastDate = new Date(sortedDates[sortedDates.length - 1]);
-  if (lastDate.getDay() !== 5) return null;
 
   const allNewRankIn = [], allRankOut = [], allVolumeIncrease = [];
   const allContinueCodes = new Set();
@@ -1005,14 +1004,40 @@ function renderStockTrackTab() {
   return html;
 }
 
+function generateReport() {
+  state.reportGenerated = true;
+  renderContent();
+}
+
 function renderReportTab() {
-  const signals = detectSignals();
-  const report = getWeeklyReport(signals);
-  if (!report) {
-    return '<div class="empty-state">📊 金曜日付のデータを入力すると、週間レポートが自動生成されます</div>';
+  const dataCount = Object.keys(state.data).length;
+
+  if (dataCount === 0) {
+    return '<div class="empty-state">📥 まずデータを入力してください</div>';
   }
 
-  let html = '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;"><h2 style="font-size:1.5rem;">📊 週間レポート</h2><p style="color:#cbd5e1;">期間：' + report.dates[0] + ' ～ ' + report.dates[report.dates.length - 1] + '</p></div>';
+  if (!state.reportGenerated) {
+    const sortedDates = Object.keys(state.data).sort();
+    return '<div class="card" style="text-align:center;padding:48px 24px;">' +
+      '<div style="font-size:3rem;margin-bottom:16px;">📊</div>' +
+      '<p style="color:#cbd5e1;margin-bottom:8px;">登録済みデータ：<strong style="color:#fbbf24;">' + dataCount + '日分</strong></p>' +
+      '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:28px;">期間：' + sortedDates[0] + ' ～ ' + sortedDates[sortedDates.length - 1] + '</p>' +
+      '<button class="btn btn-primary" style="max-width:280px;margin:0 auto;" onclick="generateReport()">週間レポートを生成する</button>' +
+      '</div>';
+  }
+
+  const signals = detectSignals();
+  const report = getWeeklyReport(signals);
+  if (!report) return '<div class="empty-state">レポートを生成できませんでした</div>';
+
+  let html = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
+    '<button class="btn btn-gray btn-sm" onclick="state.reportGenerated=false;renderContent()">🔄 再生成</button>' +
+    '</div>';
+
+  html += '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;">' +
+    '<h2 style="font-size:1.5rem;">📊 週間レポート</h2>' +
+    '<p style="color:#cbd5e1;">期間：' + report.dates[0] + ' ～ ' + report.dates[report.dates.length - 1] + '</p>' +
+    '</div>';
 
   html += '<div class="stat-grid">' +
     '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + report.newRankIn.length + '</div><div class="stat-label">新規ランクイン</div></div>' +
