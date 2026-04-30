@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TSE 売買ランキング分析ダッシュボード</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'Hiragino Sans', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+  .header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #334155;
+    padding: 16px 24px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+  }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; max-width: 1200px; margin-left: auto; margin-right: auto; }
+  .title { font-size: 1.6rem; font-weight: bold; background: linear-gradient(to right, #fbbf24, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .data-count { font-size: 0.85rem; color: #94a3b8; }
+  .tabs { display: flex; gap: 8px; border-top: 1px solid #334155; padding-top: 12px; max-width: 1200px; margin: 0 auto; overflow-x: auto; }
+  .tab { padding: 8px 14px; background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 0.9rem; border-radius: 6px 6px 0 0; transition: all 0.2s; white-space: nowrap; font-weight: 500; }
+  .tab:hover { color: #cbd5e1; background: rgba(255,255,255,0.05); }
+  .tab.active { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border-bottom: 2px solid #fbbf24; }
+  .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+  .card { background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  .card h2 { font-size: 1.2rem; margin-bottom: 16px; color: #fbbf24; }
+  .card h3 { font-size: 1rem; margin-bottom: 12px; }
+  input[type="date"], input[type="text"], textarea {
+    width: 100%; padding: 10px 14px;
+    background: #1e293b; border: 1px solid #475569; border-radius: 8px;
+    color: white; font-size: 0.95rem;
+  }
+  input[type="date"]:focus, input[type="text"]:focus, textarea:focus { outline: none; border-color: #fbbf24; }
+  textarea { min-height: 180px; font-family: 'Courier New', monospace; font-size: 0.85rem; resize: vertical; }
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s; font-size: 0.95rem; }
+  .btn-primary { background: linear-gradient(to right, #fbbf24, #f59e0b); color: #0f172a; width: 100%; padding: 14px; margin-top: 16px; }
+  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+  .btn-red { background: #dc2626; color: white; }
+  .btn-yellow { background: #ca8a04; color: white; }
+  .btn-blue { background: #2563eb; color: white; }
+  .btn-gray { background: #475569; color: white; }
+  .btn-red:hover, .btn-yellow:hover, .btn-blue:hover, .btn-gray:hover { opacity: 0.85; }
+  .message { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; }
+  .msg-success { background: rgba(22, 101, 52, 0.4); border: 1px solid #16a34a; color: #86efac; }
+  .msg-error { background: rgba(127, 29, 29, 0.4); border: 1px solid #dc2626; color: #fca5a5; }
+  .msg-warning { background: rgba(133, 77, 14, 0.4); border: 1px solid #ca8a04; color: #fde68a; }
+  .data-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .data-badge { background: #334155; padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; }
+  .ranking-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: rgba(51, 65, 85, 0.5); border-radius: 6px; margin-bottom: 6px; }
+  .ranking-row.new { background: rgba(133, 77, 14, 0.25); border: 1px solid #ca8a04; }
+  .ranking-row.rankout { background: rgba(127, 29, 29, 0.25); border: 1px solid #dc2626; }
+  .ranking-row.continue { background: rgba(30, 64, 175, 0.25); border: 1px solid #2563eb; }
+  .rank-number { font-weight: bold; color: #fbbf24; width: 40px; flex-shrink: 0; }
+  .stock-info { flex: 1; min-width: 0; display: flex; flex-direction: column; margin-left: 12px; }
+  .stock-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stock-code { font-size: 0.75rem; color: #94a3b8; font-family: 'Courier New', monospace; }
+  .badges { display: flex; gap: 4px; margin-left: 10px; flex-wrap: wrap; }
+  .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; white-space: nowrap; }
+  .badge-new { background: #ca8a04; color: white; }
+  .badge-continue { background: #2563eb; color: white; }
+  .badge-up { background: #16a34a; color: white; }
+  .volume { margin-left: 12px; color: #cbd5e1; font-size: 0.9rem; white-space: nowrap; }
+  .register-btn { background: transparent; color: #60a5fa; border: 1px solid #60a5fa; padding: 2px 10px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; margin-left: 8px; }
+  .register-btn:hover { background: rgba(96, 165, 250, 0.2); }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .stat-card { padding: 16px; border-radius: 10px; text-align: left; }
+  .stat-yellow { background: rgba(133, 77, 14, 0.25); border: 1px solid #ca8a04; }
+  .stat-red { background: rgba(127, 29, 29, 0.25); border: 1px solid #dc2626; }
+  .stat-green { background: rgba(22, 101, 52, 0.25); border: 1px solid #16a34a; }
+  .stat-number { font-size: 2rem; font-weight: bold; }
+  .stat-label { font-size: 0.85rem; color: #cbd5e1; margin-top: 4px; }
+  .chart-container { position: relative; width: 100%; height: 320px; padding: 20px 10px 30px; }
+  .chart-svg { width: 100%; height: 100%; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; justify-content: center; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; cursor: pointer; }
+  .legend-dot { width: 12px; height: 3px; border-radius: 2px; }
+  .stock-select-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .stock-select-btn { padding: 8px 10px; border-radius: 6px; background: rgba(51, 65, 85, 0.5); border: 1px solid #475569; color: #94a3b8; cursor: pointer; font-size: 0.8rem; text-align: left; transition: all 0.2s; }
+  .stock-select-btn.selected { border-width: 2px; font-weight: bold; }
+  .btn-group { display: flex; gap: 8px; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .signal-bar { display: flex; gap: 12px; font-size: 0.85rem; flex-wrap: wrap; }
+  .signal-new { color: #fbbf24; }
+  .signal-out { color: #ef4444; }
+  .signal-up { color: #22c55e; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal-box { background: #1e293b; border: 1px solid #fbbf24; border-radius: 12px; padding: 24px; max-width: 400px; width: 100%; }
+  .modal-title { font-size: 1.2rem; font-weight: bold; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .hint { font-size: 0.8rem; color: #94a3b8; margin-top: 8px; }
+  .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; font-size: 1.05rem; }
+  .scroll { max-height: 400px; overflow-y: auto; }
+  .scroll::-webkit-scrollbar { width: 6px; }
+  .scroll::-webkit-scrollbar-track { background: #1e293b; }
+  .scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  .footer { text-align: center; padding: 20px; font-size: 0.75rem; color: #64748b; border-top: 1px solid #1e293b; margin-top: 30px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; }
+    .title { font-size: 1.3rem; }
+    .container { padding: 0 12px; }
+    .header { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 1.8rem;">📊</span>
+      <span class="title">TSE 売買ランキング分析</span>
+    </div>
+    <div class="data-count" id="dataCount">💾 データなし</div>
+  </div>
+  <div id="messageArea"></div>
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="input">📥 データ入力</button>
+    <button class="tab" data-tab="daily">📅 日次推移</button>
+    <button class="tab" data-tab="weekly">🔄 複数週比較</button>
+    <button class="tab" data-tab="stocktrack">📈 銘柄追跡</button>
+    <button class="tab" data-tab="report">📊 レポート</button>
+  </div>
+</div>
+
+<div class="container" id="content"></div>
+
+<div class="footer">💾 データはブラウザ内に自動保存されます | Pure JS v2.0</div>
+
+<div id="modalContainer"></div>
+
+<script>
+// ============================================
+// 銘柄名マッピング
+// ============================================
+const STOCK_NAMES = {
+  '7203': 'トヨタ自動車', '7267': 'ホンダ', '7201': '日産自動車', '7269': 'スズキ',
+  '7270': 'SUBARU', '7261': 'マツダ', '7211': '三菱自動車', '7202': 'いすゞ自動車',
+  '6902': 'デンソー', '7272': 'ヤマハ発動機', '7013': 'IHI', '7011': '三菱重工業',
+  '7012': '川崎重工業', '7205': '日野自動車',
+  '6758': 'ソニーグループ', '6501': '日立製作所', '6502': '東芝', '6503': '三菱電機',
+  '6752': 'パナソニック HD', '6762': 'TDK', '6770': 'アルプスアルパイン',
+  '6841': '横河電機', '6857': 'アドバンテスト', '6861': 'キーエンス',
+  '6920': 'レーザーテック', '6954': 'ファナック', '6971': '京セラ', '6981': '村田製作所',
+  '7751': 'キヤノン', '7752': 'リコー', '7733': 'オリンパス', '7735': 'SCREEN HD',
+  '6723': 'ルネサスエレクトロニクス', '6724': 'セイコーエプソン', '6701': 'NEC',
+  '6702': '富士通', '6963': 'ローム', '6976': '太陽誘電', '6098': 'リクルートHD',
+  '6146': 'ディスコ', '6532': 'ベイカレント',
+  '9984': 'ソフトバンクG', '9434': 'ソフトバンク', '9432': 'NTT',
+  '9433': 'KDDI', '4689': 'LINEヤフー', '4755': '楽天グループ', '9766': 'コナミG',
+  '2432': 'DeNA', '4751': 'サイバーエージェント', '3659': 'ネクソン',
+  '4385': 'メルカリ',
+  '8306': '三菱UFJ FG', '8316': '三井住友 FG', '8411': 'みずほ FG',
+  '8308': 'りそな HD', '8591': 'オリックス', '8593': '三菱HCキャピタル',
+  '8604': '野村HD', '8697': '日本取引所G', '8725': 'MS&AD',
+  '8750': '第一生命HD', '8766': '東京海上HD', '8630': 'SOMPO HD',
+  '8001': '伊藤忠商事', '8002': '丸紅', '8015': '豊田通商', '8031': '三井物産',
+  '8035': '東京エレクトロン', '8053': '住友商事', '8058': '三菱商事',
+  '3382': 'セブン&アイ HD', '8267': 'イオン', '9983': 'ファーストリテイリング',
+  '7974': '任天堂', '3092': 'ZOZO', '4661': 'オリエンタルランド',
+  '4502': '武田薬品工業', '4503': 'アステラス製薬', '4506': '住友ファーマ',
+  '4507': '塩野義製薬', '4519': '中外製薬', '4523': 'エーザイ', '4568': '第一三共',
+  '4578': '大塚HD', '4901': '富士フイルムHD', '4911': '資生堂', '4452': '花王',
+  '4063': '信越化学工業', '4005': '住友化学', '4042': '東ソー', '4043': 'トクヤマ',
+  '4061': 'デンカ', '4062': 'イビデン', '4183': '三井化学', '4188': '三菱ケミカルG',
+  '3407': '旭化成', '3402': '東レ',
+  '5401': '日本製鉄', '5406': '神戸製鋼所', '5411': 'JFE HD',
+  '5706': '三井金属鉱業', '5711': '三菱マテリアル', '5713': '住友金属鉱山',
+  '5714': 'DOWA HD', '5726': '大阪チタニウム',
+  '5802': '住友電気工業', '5803': 'フジクラ', '5801': '古河電気工業',
+  '1605': 'INPEX', '5020': 'ENEOS HD',
+  '1925': '大和ハウス工業', '1928': '積水ハウス', '1963': '日揮HD',
+  '8801': '三井不動産', '8802': '三菱地所', '8830': '住友不動産',
+  '2502': 'アサヒグループHD', '2503': 'キリンHD', '2802': '味の素',
+  '2914': '日本たばこ産業',
+  '9020': 'JR東日本', '9021': 'JR西日本', '9022': 'JR東海',
+  '9064': 'ヤマトHD', '9101': '日本郵船', '9104': '商船三井', '9107': '川崎汽船',
+  '9201': '日本航空', '9202': 'ANA HD',
+  '9501': '東京電力HD', '9502': '中部電力', '9503': '関西電力',
+  '9531': '東京ガス', '9532': '大阪ガス',
+  '1570': '日経レバレッジ', '1357': '日経ダブルインバース',
+  '1321': '日経225 ETF', '1306': 'TOPIX ETF', '1328': 'ゴールドファンド',
+  '1615': '東証銀行業ETF', '1540': '純金上場信託', '1579': '日経ブル2倍',
+  '285A': 'キオクシアHD',
+  '5016': 'JX金属',
+  '3110': '日東紡', '4676': 'フジ・メディア HD', '6301': 'コマツ',
+  '6305': '日立建機', '6326': 'クボタ', '6367': 'ダイキン工業', '6479': 'ミネベアミツミ',
+  '6594': 'ニデック', '6645': 'オムロン',
+  '2413': 'エムスリー', '4307': '野村総研', '4704': 'トレンドマイクロ',
+  '9613': 'NTTデータG'
+};
+
+// ============================================
+// State 管理
+// ============================================
+const STORAGE_DATA = 'tse_ranking_data_v2';
+const STORAGE_NAMES = 'tse_ranking_custom_names_v2';
+
+let state = {
+  data: loadFromStorage(STORAGE_DATA, {}),
+  customStockNames: loadFromStorage(STORAGE_NAMES, {}),
+  selectedDate: '',
+  inputText: '',
+  activeTab: 'input',
+  message: { type: '', text: '' },
+  selectedStocks: [],
+  editingStock: null,
+  editingName: ''
+};
+
+function loadFromStorage(key, defaultValue) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : defaultValue;
+  } catch (e) { return defaultValue; }
+}
+
+function saveToStorage(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch (e) { console.error('Storage error:', e); }
+}
+
+function saveState() {
+  saveToStorage(STORAGE_DATA, state.data);
+  saveToStorage(STORAGE_NAMES, state.customStockNames);
+}
+
+// ============================================
+// ヘルパー関数
+// ============================================
+function getStockName(code) {
+  const cleanCode = code.replace('TSE:', '');
+  return state.customStockNames[cleanCode] || STOCK_NAMES[cleanCode] || null;
+}
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function formatNumber(n) {
+  return n.toLocaleString();
+}
+
+const STOCK_COLORS = ['#fbbf24', '#f97316', '#ef4444', '#3b82f6', '#10b981', '#ec4899', '#8b5cf6', '#14b8a6', '#f59e0b', '#6366f1', '#84cc16', '#06b6d4', '#a855f7', '#d946ef', '#f43f5e'];
+
+// ============================================
+// ビジネスロジック
+// ============================================
+function validateFormat(text) {
+  const lines = text.trim().split('\n').filter(function(l) { return l.trim(); });
+  const results = [];
+  let i = 0;
+  while (i < lines.length) {
+    const titleMatch = lines[i].match(/###売買代金ランキング\((\d{4}\/\d{2}\/\d{2})\)/);
+    if (!titleMatch) return { valid: false, error: '日付は YYYY/MM/DD 形式で入力してください' };
+    const date = titleMatch[1];
+    const codesLine = lines[i + 1];
+    const amountsLine = lines[i + 2];
+    if (!codesLine || !codesLine.startsWith('TSE:') || !amountsLine || !amountsLine.startsWith('売買代金')) {
+      return { valid: false, error: 'TradingView形式で入力してください' };
+    }
+    const codes = codesLine.split(',').map(function(c) { return c.trim(); });
+    const amountParts = amountsLine.split(':');
+    const amounts = amountParts[1] ? amountParts[1].split(',').map(function(a) { return parseInt(a.trim()); }) : [];
+    if (codes.length !== 30) return { valid: false, error: '30銘柄を入力してください（現在: ' + codes.length + '銘柄）' };
+    if (amounts.length !== 30 || amounts.some(isNaN)) return { valid: false, error: '売買代金の形式が不正です' };
+    results.push({ date: date, codes: codes, amounts: amounts });
+    i += 3;
+  }
+  return { valid: true, results: results };
+}
+
+function detectSignals() {
+  const data = state.data;
+  if (Object.keys(data).length === 0) return {};
+  const sortedDates = Object.keys(data).sort();
+  const signals = {};
+
+  sortedDates.forEach(function(date, idx) {
+    signals[date] = { newRankIn: [], rankOut: [], volumeIncrease: [], multiWeekContinue: [] };
+    if (idx === 0) return;
+    const prevDate = sortedDates[idx - 1];
+    const prevCodes = new Set(data[prevDate].codes);
+    const currCodes = new Set(data[date].codes);
+
+    currCodes.forEach(function(code) {
+      if (!prevCodes.has(code)) {
+        signals[date].newRankIn.push({ code: code, rank: data[date].codes.indexOf(code) + 1 });
+      }
+    });
+    prevCodes.forEach(function(code) {
+      if (!currCodes.has(code)) {
+        signals[date].rankOut.push({ code: code, prevRank: data[prevDate].codes.indexOf(code) + 1 });
+      }
+    });
+    data[date].codes.forEach(function(code, idx2) {
+      const prevIdx = data[prevDate].codes.indexOf(code);
+      if (prevIdx !== -1) {
+        const prevVol = data[prevDate].amounts[prevIdx];
+        const currVol = data[date].amounts[idx2];
+        const increase = ((currVol - prevVol) / prevVol) * 100;
+        if (increase >= 10) {
+          signals[date].volumeIncrease.push({ code: code, increase: increase.toFixed(1), vol: currVol });
+        }
+      }
+    });
+  });
+
+  sortedDates.forEach(function(date, idx) {
+    if (idx === 0) return;
+    const prevDate = sortedDates[idx - 1];
+    data[date].codes.forEach(function(code, codeIdx) {
+      if (data[prevDate].codes.includes(code)) {
+        if (!signals[date].multiWeekContinue.find(function(m) { return m.code === code; })) {
+          signals[date].multiWeekContinue.push({ code: code, rank: codeIdx + 1, days: 2 });
+        }
+      }
+    });
+  });
+  return signals;
+}
+
+function getWeeklyReport(signals) {
+  const sortedDates = Object.keys(state.data).sort();
+  if (sortedDates.length < 5) return null;
+  const lastDate = new Date(sortedDates[sortedDates.length - 1]);
+  if (lastDate.getDay() !== 5) return null;
+
+  const allNewRankIn = [], allRankOut = [], allVolumeIncrease = [];
+  const allContinueCodes = new Set();
+  sortedDates.forEach(function(date) {
+    if (signals[date]) {
+      signals[date].newRankIn.forEach(function(item) { allNewRankIn.push(Object.assign({}, item, { date: date })); });
+      signals[date].rankOut.forEach(function(item) { allRankOut.push(Object.assign({}, item, { date: date })); });
+      signals[date].volumeIncrease.forEach(function(item) { allVolumeIncrease.push(Object.assign({}, item, { date: date })); });
+      signals[date].multiWeekContinue.forEach(function(item) { allContinueCodes.add(item.code); });
+    }
+  });
+  return { dates: sortedDates, newRankIn: allNewRankIn, rankOut: allRankOut, volumeIncrease: allVolumeIncrease, continueCodes: Array.from(allContinueCodes) };
+}
+
+// ============================================
+// 自前SVGチャート描画
+// ============================================
+function drawLineChart(containerId, data, series, options) {
+  options = options || {};
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty-state">データが不足しています</div>';
+    return;
+  }
+
+  const width = container.clientWidth || 800;
+  const height = 320;
+  const padding = { top: 20, right: 20, bottom: 40, left: 70 };
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+
+  let allValues = [];
+  series.forEach(function(s) {
+    data.forEach(function(d) {
+      if (d[s.key] != null && !isNaN(d[s.key])) allValues.push(d[s.key]);
+    });
+  });
+  if (allValues.length === 0) {
+    container.innerHTML = '<div class="empty-state">表示するデータがありません</div>';
+    return;
+  }
+
+  let minY = options.reversed ? Math.max.apply(null, allValues) : Math.min.apply(null, allValues);
+  let maxY = options.reversed ? Math.min.apply(null, allValues) : Math.max.apply(null, allValues);
+  if (options.forceMin != null) minY = options.forceMin;
+  if (options.forceMax != null) maxY = options.forceMax;
+  if (!options.reversed) {
+    const range = maxY - minY;
+    minY = Math.max(0, minY - range * 0.1);
+    maxY = maxY + range * 0.1;
+  }
+
+  const xStep = data.length > 1 ? innerW / (data.length - 1) : 0;
+
+  function xPos(i) { return padding.left + i * xStep; }
+  function yPos(v) {
+    if (options.reversed) {
+      return padding.top + ((v - minY) / (maxY - minY)) * innerH;
+    }
+    return padding.top + innerH - ((v - minY) / (maxY - minY)) * innerH;
+  }
+
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">';
+
+  // Y軸グリッド
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = minY + ((maxY - minY) / yTicks) * i;
+    const y = options.reversed ? padding.top + (i / yTicks) * innerH : padding.top + innerH - (i / yTicks) * innerH;
+    svg += '<line x1="' + padding.left + '" y1="' + y + '" x2="' + (padding.left + innerW) + '" y2="' + y + '" stroke="#334155" stroke-dasharray="3 3"/>';
+    const label = options.yFormatter ? options.yFormatter(v) : Math.round(v).toLocaleString();
+    svg += '<text x="' + (padding.left - 8) + '" y="' + (y + 4) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + label + '</text>';
+  }
+
+  // X軸ラベル
+  data.forEach(function(d, i) {
+    svg += '<text x="' + xPos(i) + '" y="' + (height - 10) + '" fill="#94a3b8" font-size="11" text-anchor="middle">' + escapeHtml(d.date) + '</text>';
+  });
+
+  // ライン
+  series.forEach(function(s) {
+    const points = data.map(function(d, i) {
+      if (d[s.key] == null || isNaN(d[s.key])) return null;
+      return xPos(i) + ',' + yPos(d[s.key]);
+    }).filter(function(p) { return p !== null; });
+    if (points.length > 0) {
+      svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + s.color + '" stroke-width="2"/>';
+      // ドット
+      data.forEach(function(d, i) {
+        if (d[s.key] != null && !isNaN(d[s.key])) {
+          svg += '<circle cx="' + xPos(i) + '" cy="' + yPos(d[s.key]) + '" r="3" fill="' + s.color + '"/>';
+        }
+      });
+    }
+  });
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+
+  // 凡例
+  if (series.length > 0 && options.showLegend !== false) {
+    let legend = '<div class="chart-legend">';
+    series.forEach(function(s) {
+      legend += '<div class="legend-item"><span class="legend-dot" style="background:' + s.color + '"></span>' + escapeHtml(s.label) + '</div>';
+    });
+    legend += '</div>';
+    container.insertAdjacentHTML('beforeend', legend);
+  }
+}
+
+function drawBarChart(containerId, data, valueKey, options) {
+  options = options || {};
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!data || data.length === 0) {
+    container.innerHTML = '<div class="empty-state">データが不足しています</div>';
+    return;
+  }
+
+  const width = container.clientWidth || 800;
+  const height = 240;
+  const padding = { top: 20, right: 20, bottom: 40, left: 70 };
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+
+  const values = data.map(function(d) { return d[valueKey]; });
+  const maxY = Math.max.apply(null, values) * 1.1;
+  const minY = 0;
+
+  const barWidth = innerW / data.length * 0.7;
+  const barGap = innerW / data.length * 0.3;
+
+  let svg = '<svg class="chart-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none">';
+
+  // Y軸グリッド
+  const yTicks = 5;
+  for (let i = 0; i <= yTicks; i++) {
+    const v = (maxY / yTicks) * i;
+    const y = padding.top + innerH - (i / yTicks) * innerH;
+    svg += '<line x1="' + padding.left + '" y1="' + y + '" x2="' + (padding.left + innerW) + '" y2="' + y + '" stroke="#334155" stroke-dasharray="3 3"/>';
+    svg += '<text x="' + (padding.left - 8) + '" y="' + (y + 4) + '" fill="#94a3b8" font-size="11" text-anchor="end">' + Math.round(v).toLocaleString() + '</text>';
+  }
+
+  // バー
+  data.forEach(function(d, i) {
+    const x = padding.left + (innerW / data.length) * i + barGap / 2;
+    const barH = ((d[valueKey] - minY) / (maxY - minY)) * innerH;
+    const y = padding.top + innerH - barH;
+    svg += '<rect x="' + x + '" y="' + y + '" width="' + barWidth + '" height="' + barH + '" fill="' + (options.color || '#fbbf24') + '" rx="4"/>';
+    svg += '<text x="' + (x + barWidth / 2) + '" y="' + (height - 10) + '" fill="#94a3b8" font-size="11" text-anchor="middle">' + escapeHtml(d.date) + '</text>';
+  });
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
+// ============================================
+// アクション
+// ============================================
+function showMessage(type, text, duration) {
+  state.message = { type: type, text: text };
+  renderMessage();
+  if (duration !== 0) {
+    setTimeout(function() {
+      state.message = { type: '', text: '' };
+      renderMessage();
+    }, duration || 3000);
+  }
+}
+
+function handleAddData() {
+  const dateInput = document.getElementById('dateInput');
+  const textInput = document.getElementById('textInput');
+  if (!dateInput || !textInput) return;
+  state.selectedDate = dateInput.value ? dateInput.value.replace(/-/g, '/') : '';
+  state.inputText = textInput.value;
+
+  if (!state.selectedDate && !state.inputText.includes('###')) {
+    showMessage('error', '日付を選択してください');
+    return;
+  }
+  const validation = validateFormat(state.inputText);
+  if (!validation.valid) {
+    showMessage('error', validation.error);
+    return;
+  }
+
+  let addedCount = 0;
+  let overwritten = false;
+  validation.results.forEach(function(item) {
+    const finalDate = state.selectedDate || item.date;
+    if (state.data[finalDate]) overwritten = true;
+    state.data[finalDate] = { codes: item.codes, amounts: item.amounts };
+    addedCount++;
+  });
+
+  state.inputText = '';
+  state.selectedDate = '';
+  state.selectedStocks = [];
+  saveState();
+
+  if (overwritten) {
+    showMessage('warning', addedCount + '日分を追加（一部上書き）');
+  } else {
+    showMessage('success', addedCount + '日分のデータを追加しました');
+  }
+  render();
+}
+
+function handleDeleteDate(date) {
+  if (confirm(date + 'のデータを削除しますか？')) {
+    delete state.data[date];
+    state.selectedStocks = [];
+    saveState();
+    render();
+  }
+}
+
+function handleClearAll() {
+  if (confirm('全てのデータを削除しますか？この操作は取り消せません。')) {
+    state.data = {};
+    state.selectedStocks = [];
+    saveState();
+    render();
+  }
+}
+
+function openRegisterModal(code) {
+  state.editingStock = code;
+  state.editingName = '';
+  renderModal();
+}
+
+function closeModal() {
+  state.editingStock = null;
+  state.editingName = '';
+  renderModal();
+}
+
+function saveCustomName() {
+  const input = document.getElementById('modalInput');
+  if (!input) return;
+  const name = input.value.trim();
+  if (state.editingStock && name) {
+    const cleanCode = state.editingStock.replace('TSE:', '');
+    state.customStockNames[cleanCode] = name;
+    saveState();
+    closeModal();
+    showMessage('success', cleanCode + ' を「' + name + '」として登録しました');
+    render();
+  }
+}
+
+function deleteCustomName(code) {
+  delete state.customStockNames[code];
+  saveState();
+  render();
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
+  renderContent();
+}
+
+function toggleStock(code) {
+  if (state.selectedStocks.includes(code)) {
+    state.selectedStocks = state.selectedStocks.filter(function(c) { return c !== code; });
+  } else {
+    state.selectedStocks.push(code);
+  }
+  renderContent();
+}
+
+function setSelectedStocks(codes) {
+  state.selectedStocks = codes.slice();
+  renderContent();
+}
+
+// ============================================
+// Rendering
+// ============================================
+function renderMessage() {
+  const area = document.getElementById('messageArea');
+  if (!area) return;
+  if (!state.message.text) {
+    area.innerHTML = '';
+    return;
+  }
+  const cls = state.message.type === 'success' ? 'msg-success' : state.message.type === 'error' ? 'msg-error' : 'msg-warning';
+  area.innerHTML = '<div class="message ' + cls + '">' + escapeHtml(state.message.text) + '</div>';
+}
+
+function renderDataCount() {
+  const el = document.getElementById('dataCount');
+  if (!el) return;
+  const count = Object.keys(state.data).length;
+  el.textContent = count > 0 ? '💾 ' + count + '日分' : '💾 データなし';
+}
+
+function renderModal() {
+  const container = document.getElementById('modalContainer');
+  if (!container) return;
+  if (!state.editingStock) {
+    container.innerHTML = '';
+    return;
+  }
+  const cleanCode = state.editingStock.replace('TSE:', '');
+  container.innerHTML =
+    '<div class="modal-overlay" onclick="closeModal()">' +
+      '<div class="modal-box" onclick="event.stopPropagation()">' +
+        '<div class="modal-title">📝 銘柄名を登録</div>' +
+        '<div style="margin-bottom:12px;"><div style="font-size:0.8rem;color:#94a3b8;">銘柄コード</div><div style="font-family:monospace;font-size:1.1rem;">' + escapeHtml(cleanCode) + '</div></div>' +
+        '<div style="margin-bottom:12px;"><label style="font-size:0.8rem;color:#94a3b8;display:block;margin-bottom:4px;">銘柄名</label>' +
+        '<input type="text" id="modalInput" placeholder="例：トヨタ自動車" autofocus onkeydown="if(event.key===\'Enter\')saveCustomName()"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn btn-gray" onclick="closeModal()">キャンセル</button>' +
+          '<button class="btn btn-primary" style="width:auto;padding:10px 20px;margin:0;" onclick="saveCustomName()">登録する</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  setTimeout(function() {
+    const mi = document.getElementById('modalInput');
+    if (mi) mi.focus();
+  }, 50);
+}
+
+function renderInputTab() {
+  let html = '<div class="card"><h2>📅 日付選択</h2>' +
+    '<input type="date" id="dateInput" value="' + state.selectedDate.replace(/\//g, '-') + '">' +
+    '<div class="hint">※ 日付を選択するか、テキスト内に ###売買代金ランキング(YYYY/MM/DD) を記入してください</div></div>';
+
+  html += '<div class="card"><h2>TradingView形式テキスト</h2>' +
+    '<textarea id="textInput" placeholder="###売買代金ランキング(2026/04/21)&#10;TSE:285A,TSE:9984,...&#10;売買代金(百万円):814589,486485,...">' + escapeHtml(state.inputText) + '</textarea></div>';
+
+  html += '<button class="btn btn-primary" onclick="handleAddData()">✅ データ追加</button>';
+
+  const dataKeys = Object.keys(state.data).sort();
+  if (dataKeys.length > 0) {
+    html += '<div class="card"><div class="flex-between"><h3>登録済みデータ（💾 自動保存）</h3><button class="btn btn-sm btn-red" onclick="handleClearAll()">全削除</button></div><div class="data-grid">';
+    dataKeys.forEach(function(date) {
+      html += '<div class="data-badge"><span>' + escapeHtml(date) + '</span><button class="btn btn-sm btn-red" onclick="handleDeleteDate(\'' + date + '\')">✕</button></div>';
+    });
+    html += '</div></div>';
+  }
+
+  const customKeys = Object.keys(state.customStockNames);
+  if (customKeys.length > 0) {
+    html += '<div class="card"><h3>📝 カスタム登録銘柄（' + customKeys.length + '件）</h3><div class="data-grid">';
+    customKeys.forEach(function(code) {
+      const name = state.customStockNames[code];
+      html += '<div class="data-badge"><div><span>' + escapeHtml(name) + '</span> <span style="font-size:0.75rem;color:#94a3b8;font-family:monospace;">' + escapeHtml(code) + '</span></div><button class="btn btn-sm btn-red" onclick="deleteCustomName(\'' + code + '\')">削除</button></div>';
+    });
+    html += '</div></div>';
+  }
+
+  return html;
+}
+
+function renderDailyTab() {
+  const data = state.data;
+  const signals = detectSignals();
+  const sortedDates = Object.keys(data).sort();
+  if (sortedDates.length === 0) return '<div class="empty-state">📥 まずデータを入力してください</div>';
+
+  // 全銘柄頻度
+  const frequency = {};
+  Object.values(data).forEach(function(d) {
+    d.codes.forEach(function(code) { frequency[code] = (frequency[code] || 0) + 1; });
+  });
+  const allStockCodes = Object.keys(frequency).sort(function(a, b) { return frequency[b] - frequency[a]; });
+
+  if (state.selectedStocks.length === 0) {
+    const lastDate = sortedDates[sortedDates.length - 1];
+    state.selectedStocks = data[lastDate].codes.slice(0, 10);
+  }
+
+  let html = '<div class="card"><div class="flex-between"><h2>銘柄別 売買代金推移（百万円）</h2><span style="font-size:0.85rem;color:#94a3b8;">表示中: ' + state.selectedStocks.length + ' / ' + allStockCodes.length + '銘柄</span></div><div class="chart-container" id="chart-daily-stock"></div></div>';
+
+  html += '<div class="card"><div class="flex-between"><h3>表示銘柄の選択</h3><div class="btn-group">' +
+    '<button class="btn btn-sm btn-yellow" onclick="setTop10()">TOP10</button>' +
+    '<button class="btn btn-sm btn-blue" onclick="setAllStocks()">全選択</button>' +
+    '<button class="btn btn-sm btn-gray" onclick="setSelectedStocks([])">クリア</button>' +
+    '</div></div><div class="stock-select-grid">';
+
+  allStockCodes.forEach(function(code) {
+    const isSelected = state.selectedStocks.includes(code);
+    const colorIdx = state.selectedStocks.indexOf(code);
+    const stockName = getStockName(code);
+    const cleanCode = code.replace('TSE:', '');
+    const color = isSelected ? STOCK_COLORS[colorIdx % STOCK_COLORS.length] : null;
+    const style = isSelected ? 'background:' + color + '30;border-color:' + color + ';color:' + color + ';' : '';
+    html += '<button class="stock-select-btn' + (isSelected ? ' selected' : '') + '" style="' + style + '" onclick="toggleStock(\'' + code + '\')" title="' + escapeHtml(cleanCode) + '">' +
+      '<div>' + escapeHtml(stockName || cleanCode) + '</div>' +
+      (stockName ? '<div style="font-size:0.7rem;opacity:0.6;font-family:monospace;">' + escapeHtml(cleanCode) + '</div>' : '') +
+      '</button>';
+  });
+  html += '</div></div>';
+
+  html += '<div class="card"><h2>日次合計売買代金（参考・百万円）</h2><div class="chart-container" id="chart-daily-total" style="height:240px;"></div></div>';
+
+  sortedDates.slice().reverse().forEach(function(date) {
+    const sig = signals[date] || { newRankIn: [], rankOut: [], volumeIncrease: [], multiWeekContinue: [] };
+    html += '<div class="card"><div class="flex-between"><h3>' + escapeHtml(date) + '</h3><div class="signal-bar">';
+    if (sig.newRankIn.length > 0) html += '<span class="signal-new">🆕 ' + sig.newRankIn.length + '銘柄</span>';
+    if (sig.rankOut.length > 0) html += '<span class="signal-out">🚪 ' + sig.rankOut.length + '銘柄</span>';
+    if (sig.volumeIncrease.length > 0) html += '<span class="signal-up">📈 ' + sig.volumeIncrease.length + '銘柄</span>';
+    html += '</div></div><div class="scroll">';
+
+    data[date].codes.forEach(function(code, idx) {
+      const isNew = sig.newRankIn.some(function(n) { return n.code === code; });
+      const isRankOut = sig.rankOut.some(function(r) { return r.code === code; });
+      const volumeInc = sig.volumeIncrease.find(function(v) { return v.code === code; });
+      const isContinue = sig.multiWeekContinue.some(function(m) { return m.code === code; });
+      const stockName = getStockName(code);
+      const cleanCode = code.replace('TSE:', '');
+      const rowClass = isNew ? 'ranking-row new' : isRankOut ? 'ranking-row rankout' : isContinue ? 'ranking-row continue' : 'ranking-row';
+
+      html += '<div class="' + rowClass + '"><span class="rank-number">#' + (idx + 1) + '</span><div class="stock-info">';
+      if (stockName) {
+        html += '<div class="stock-name">' + escapeHtml(stockName) + '</div><div class="stock-code">' + escapeHtml(cleanCode) + '</div>';
+      } else {
+        html += '<div style="display:flex;align-items:center;gap:8px;"><span class="stock-code" style="font-size:0.9rem;">' + escapeHtml(cleanCode) + '</span><button class="register-btn" onclick="openRegisterModal(\'' + code + '\')">📝 登録</button></div>';
+      }
+      html += '</div><div class="badges">';
+      if (isNew) html += '<span class="badge badge-new">新規</span>';
+      if (isContinue) html += '<span class="badge badge-continue">継続</span>';
+      if (volumeInc) html += '<span class="badge badge-up">↑' + volumeInc.increase + '%</span>';
+      html += '</div><span class="volume">' + formatNumber(data[date].amounts[idx]) + 'M</span></div>';
+    });
+
+    html += '</div></div>';
+  });
+
+  return html;
+}
+
+function renderWeeklyTab() {
+  const data = state.data;
+  const sortedDates = Object.keys(data).sort();
+  if (sortedDates.length < 2) return '<div class="empty-state">🔄 2日以上のデータを入力してください</div>';
+
+  const signals = detectSignals();
+  let totalNew = 0, totalOut = 0;
+  Object.values(signals).forEach(function(s) { totalNew += s.newRankIn.length; totalOut += s.rankOut.length; });
+
+  let html = '<div class="card"><h2>新規ランクイン × ランクアウト</h2>' +
+    '<div class="stat-grid">' +
+    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + totalNew + '</div><div class="stat-label">新規ランクイン銘柄</div></div>' +
+    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + totalOut + '</div><div class="stat-label">ランクアウト銘柄</div></div>' +
+    '</div>' +
+    '<div class="two-col">' +
+    '<div><h3 style="color:#fbbf24;">🆕 新規ランクイン</h3><div class="scroll" style="max-height:300px;">';
+
+  const allNewRankIn = [];
+  Object.entries(signals).forEach(function(entry) {
+    const date = entry[0]; const sig = entry[1];
+    sig.newRankIn.forEach(function(item) { allNewRankIn.push(Object.assign({}, item, { date: date })); });
+  });
+  allNewRankIn.forEach(function(item) {
+    const stockName = getStockName(item.code);
+    const cleanCode = item.code.replace('TSE:', '');
+    html += '<div style="padding:10px;background:rgba(51,65,85,0.5);border-radius:6px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;"><span style="font-weight:500;">' + escapeHtml(stockName || cleanCode) + '</span><span style="color:#94a3b8;font-size:0.8rem;">#' + item.rank + ' (' + item.date + ')</span></div>' + (stockName ? '<div style="font-size:0.75rem;color:#64748b;font-family:monospace;">' + escapeHtml(cleanCode) + '</div>' : '') + '</div>';
+  });
+
+  html += '</div></div><div><h3 style="color:#ef4444;">🚪 ランクアウト</h3><div class="scroll" style="max-height:300px;">';
+
+  const allRankOut = [];
+  Object.entries(signals).forEach(function(entry) {
+    const date = entry[0]; const sig = entry[1];
+    sig.rankOut.forEach(function(item) { allRankOut.push(Object.assign({}, item, { date: date })); });
+  });
+  allRankOut.forEach(function(item) {
+    const stockName = getStockName(item.code);
+    const cleanCode = item.code.replace('TSE:', '');
+    html += '<div style="padding:10px;background:rgba(51,65,85,0.5);border-radius:6px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;"><span style="font-weight:500;">' + escapeHtml(stockName || cleanCode) + '</span><span style="color:#94a3b8;font-size:0.8rem;">前日#' + item.prevRank + ' (' + item.date + ')</span></div>' + (stockName ? '<div style="font-size:0.75rem;color:#64748b;font-family:monospace;">' + escapeHtml(cleanCode) + '</div>' : '') + '</div>';
+  });
+
+  html += '</div></div></div></div>';
+  return html;
+}
+
+function renderStockTrackTab() {
+  const data = state.data;
+  const sortedDates = Object.keys(data).sort();
+  if (sortedDates.length === 0) return '<div class="empty-state">📥 まずデータを入力してください</div>';
+
+  const signals = detectSignals();
+  let html = '<div class="card"><h2>TOP 10銘柄の順位推移</h2><div class="chart-container" id="chart-top10"></div></div>';
+
+  // 継続銘柄集計
+  const continueMap = {};
+  Object.values(signals).forEach(function(s) {
+    s.multiWeekContinue.forEach(function(item) {
+      if (!continueMap[item.code]) continueMap[item.code] = 2;
+      else continueMap[item.code]++;
+    });
+  });
+  const continueItems = Object.keys(continueMap).map(function(code) { return { code: code, days: continueMap[code] }; }).sort(function(a, b) { return b.days - a.days; });
+
+  html += '<div class="card"><h2>複数日継続銘柄</h2>';
+  if (continueItems.length === 0) {
+    html += '<div style="color:#94a3b8;">継続銘柄はまだありません</div>';
+  } else {
+    continueItems.forEach(function(item) {
+      const stockName = getStockName(item.code);
+      const cleanCode = item.code.replace('TSE:', '');
+      html += '<div class="ranking-row continue" style="margin-bottom:8px;"><div class="stock-info">' +
+        '<div class="stock-name">' + escapeHtml(stockName || cleanCode) + '</div>' +
+        (stockName ? '<div class="stock-code">' + escapeHtml(cleanCode) + '</div>' : '') +
+        '</div><span style="color:#93c5fd;">⭐ ' + item.days + '日連続</span></div>';
+    });
+  }
+  html += '</div>';
+
+  return html;
+}
+
+function renderReportTab() {
+  const signals = detectSignals();
+  const report = getWeeklyReport(signals);
+  if (!report) {
+    return '<div class="empty-state">📊 金曜日のデータを入力すると、週間レポートが自動生成されます<br>（5日分以上のデータが必要で、最終日が金曜日である必要があります）</div>';
+  }
+
+  let html = '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;"><h2 style="font-size:1.5rem;">📊 週間レポート</h2><p style="color:#cbd5e1;">期間：' + report.dates[0] + ' ～ ' + report.dates[report.dates.length - 1] + '</p></div>';
+
+  html += '<div class="stat-grid">' +
+    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + report.newRankIn.length + '</div><div class="stat-label">新規ランクイン</div></div>' +
+    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + report.rankOut.length + '</div><div class="stat-label">ランクアウト</div></div>' +
+    '<div class="stat-card stat-green"><div class="stat-number" style="color:#22c55e;">' + report.volumeIncrease.length + '</div><div class="stat-label">売買代金↑10%以上</div></div>' +
+    '</div>';
+
+  html += '<div class="card"><h3>売買代金トレンド</h3><div class="chart-container" id="chart-report-total" style="height:260px;"></div></div>';
+
+  const topIncrease = report.volumeIncrease.slice().sort(function(a, b) { return parseFloat(b.increase) - parseFloat(a.increase); }).slice(0, 5);
+  html += '<div class="card"><h3>最大変動銘柄 TOP 5</h3>';
+  topIncrease.forEach(function(item) {
+    const stockName = getStockName(item.code);
+    const cleanCode = item.code.replace('TSE:', '');
+    html += '<div class="ranking-row" style="margin-bottom:8px;"><div class="stock-info"><div class="stock-name">' + escapeHtml(stockName || cleanCode) + '</div>' + (stockName ? '<div class="stock-code">' + escapeHtml(cleanCode) + '</div>' : '') + '</div><div style="display:flex;gap:12px;align-items:center;"><span style="color:#94a3b8;font-size:0.85rem;">' + item.date + '</span><span style="color:#22c55e;font-weight:bold;">↑' + item.increase + '%</span></div></div>';
+  });
+  html += '</div>';
+
+  return html;
+}
+
+function renderContent() {
+  const content = document.getElementById('content');
+  if (!content) return;
+  let html = '';
+  if (state.activeTab === 'input') html = renderInputTab();
+  else if (state.activeTab === 'daily') html = renderDailyTab();
+  else if (state.activeTab === 'weekly') html = renderWeeklyTab();
+  else if (state.activeTab === 'stocktrack') html = renderStockTrackTab();
+  else if (state.activeTab === 'report') html = renderReportTab();
+  content.innerHTML = html;
+
+  // チャート描画（次のtick）
+  setTimeout(drawCharts, 50);
+}
+
+function drawCharts() {
+  const data = state.data;
+  const sortedDates = Object.keys(data).sort();
+
+  if (state.activeTab === 'daily' && sortedDates.length > 0) {
+    // 銘柄別推移
+    const chartData = sortedDates.map(function(date) {
+      const entry = { date: date.substring(5) };
+      data[date].codes.forEach(function(code, idx) { entry[code] = data[date].amounts[idx]; });
+      return entry;
+    });
+    const series = state.selectedStocks.map(function(code, idx) {
+      return { key: code, label: getStockName(code) || code.replace('TSE:', ''), color: STOCK_COLORS[idx % STOCK_COLORS.length] };
+    });
+    drawLineChart('chart-daily-stock', chartData, series, {
+      yFormatter: function(v) { return Math.round(v).toLocaleString(); }
+    });
+
+    // 日次合計
+    const totalData = sortedDates.map(function(date) {
+      return { date: date.substring(5), volume: data[date].amounts.reduce(function(a, b) { return a + b; }, 0) };
+    });
+    drawBarChart('chart-daily-total', totalData, 'volume', { color: '#fbbf24' });
+  }
+
+  if (state.activeTab === 'stocktrack' && sortedDates.length > 0) {
+    const lastDate = sortedDates[sortedDates.length - 1];
+    const top10Codes = data[lastDate].codes.slice(0, 10);
+    const chartData = sortedDates.map(function(date) {
+      const entry = { date: date.substring(5) };
+      data[date].codes.slice(0, 10).forEach(function(code, idx) {
+        entry[code] = idx + 1;
+      });
+      return entry;
+    });
+    const series = top10Codes.map(function(code, idx) {
+      return { key: code, label: getStockName(code) || code.replace('TSE:', ''), color: STOCK_COLORS[idx % STOCK_COLORS.length] };
+    });
+    drawLineChart('chart-top10', chartData, series, {
+      reversed: true,
+      forceMin: 1,
+      forceMax: 10,
+      yFormatter: function(v) { return Math.round(v) + '位'; }
+    });
+  }
+
+  if (state.activeTab === 'report') {
+    const totalData = sortedDates.map(function(date) {
+      return { date: date.substring(5), volume: data[date].amounts.reduce(function(a, b) { return a + b; }, 0) };
+    });
+    drawBarChart('chart-report-total', totalData, 'volume', { color: '#10b981' });
+  }
+}
+
+function setTop10() {
+  const sortedDates = Object.keys(state.data).sort();
+  if (sortedDates.length === 0) return;
+  const lastDate = sortedDates[sortedDates.length - 1];
+  state.selectedStocks = state.data[lastDate].codes.slice(0, 10);
+  renderContent();
+}
+
+function setAllStocks() {
+  const frequency = {};
+  Object.values(state.data).forEach(function(d) {
+    d.codes.forEach(function(code) { frequency[code] = (frequency[code] || 0) + 1; });
+  });
+  state.selectedStocks = Object.keys(frequency).sort(function(a, b) { return frequency[b] - frequency[a]; });
+  renderContent();
+}
+
+function render() {
+  renderMessage();
+  renderDataCount();
+  renderContent();
+  renderModal();
+}
+
+// ============================================
+// 初期化
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      setActiveTab(tab.dataset.tab);
+    });
+  });
+  render();
+
+  // ウィンドウリサイズ時にチャート再描画
+  window.addEventListener('resize', function() {
+    clearTimeout(window._resizeTimer);
+    window._resizeTimer = setTimeout(drawCharts, 200);
+  });
+});
+</script>
+</body>
+</html>
