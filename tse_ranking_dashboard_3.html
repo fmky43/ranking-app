@@ -964,42 +964,96 @@ function renderWeeklyTab() {
   if (sortedDates.length < 2) return '<div class="empty-state">🔄 2日以上のデータを入力してください</div>';
 
   const signals = detectSignals();
+
+  // 日付を週ごとにグループ化
+  const weeksMap = {};
+  sortedDates.forEach(function(dateStr) {
+    const w = getWeekOfDates(dateStr);
+    if (!weeksMap[w.weekStart]) {
+      weeksMap[w.weekStart] = { weekStart: w.weekStart, weekEnd: w.weekEnd, monday: w.monday, dates: [] };
+    }
+    weeksMap[w.weekStart].dates.push(dateStr);
+  });
+  const weeks = Object.values(weeksMap).sort(function(a, b) {
+    return b.weekStart > a.weekStart ? 1 : -1; // 新しい週を上に
+  });
+
+  // 全体サマリー
   let totalNew = 0, totalOut = 0;
   Object.values(signals).forEach(function(s) { totalNew += s.newRankIn.length; totalOut += s.rankOut.length; });
 
-  let html = '<div class="card"><h2>新規ランクイン × ランクアウト</h2>' +
-    '<div class="stat-grid">' +
-    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + totalNew + '</div><div class="stat-label">新規ランクイン銘柄</div></div>' +
-    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + totalOut + '</div><div class="stat-label">ランクアウト銘柄</div></div>' +
-    '</div>' +
-    '<div class="two-col">' +
-    '<div><h3 style="color:#fbbf24;">🆕 新規ランクイン</h3><div class="scroll" style="max-height:300px;">';
+  let html = '<div class="card"><h2>複数週比較</h2><div class="stat-grid">' +
+    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + totalNew + '</div><div class="stat-label">総ランクイン件数</div></div>' +
+    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + totalOut + '</div><div class="stat-label">総ランクアウト件数</div></div>' +
+    '<div class="stat-card" style="background:rgba(51,65,85,0.3);border:1px solid #475569;"><div class="stat-number">' + weeks.length + '</div><div class="stat-label">集計週数</div></div>' +
+    '</div></div>';
 
-  const allNewRankIn = [];
-  Object.entries(signals).forEach(function(entry) {
-    const date = entry[0]; const sig = entry[1];
-    sig.newRankIn.forEach(function(item) { allNewRankIn.push(Object.assign({}, item, { date: date })); });
-  });
-  allNewRankIn.forEach(function(item) {
-    const stockName = getStockName(item.code);
-    const cleanCode = item.code.replace('TSE:', '');
-    html += '<div style="padding:10px;background:rgba(51,65,85,0.5);border-radius:6px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;"><span style="font-weight:500;">' + escapeHtml(stockName || cleanCode) + '</span><span style="color:#94a3b8;font-size:0.8rem;">#' + item.rank + ' (' + item.date + ')</span></div>' + (stockName ? '<div style="font-size:0.75rem;color:#64748b;font-family:monospace;">' + escapeHtml(cleanCode) + '</div>' : '') + '</div>';
+  // 週ごとのセクション
+  weeks.forEach(function(week) {
+    const weekNewRankIn = [], weekRankOut = [];
+    week.dates.forEach(function(date) {
+      const sig = signals[date] || { newRankIn: [], rankOut: [] };
+      sig.newRankIn.forEach(function(item) { weekNewRankIn.push(Object.assign({}, item, { date: date })); });
+      sig.rankOut.forEach(function(item) { weekRankOut.push(Object.assign({}, item, { date: date })); });
+    });
+
+    const m = week.monday;
+    const weekLabel = (m.getMonth() + 1) + '/' + m.getDate() + '週';
+
+    html += '<div class="card">';
+    // セクションヘッダー
+    html += '<div class="flex-between" style="margin-bottom:14px;">' +
+      '<div>' +
+        '<span style="font-size:1.05rem;font-weight:bold;color:#e2e8f0;">' + weekLabel + '</span>' +
+        '<span style="font-size:0.8rem;color:#64748b;margin-left:10px;">' + week.weekStart + ' ～ ' + week.weekEnd + '（' + week.dates.length + '日分）</span>' +
+      '</div>' +
+      '<div class="signal-bar">' +
+        '<span class="signal-new">🆕 ' + weekNewRankIn.length + '銘柄</span>' +
+        '<span class="signal-out">🚪 ' + weekRankOut.length + '銘柄</span>' +
+      '</div>' +
+    '</div>';
+
+    html += '<div class="two-col">';
+
+    // ランクイン列
+    html += '<div><div style="color:#fbbf24;font-weight:bold;font-size:0.9rem;margin-bottom:8px;">🆕 新規ランクイン</div>';
+    if (weekNewRankIn.length === 0) {
+      html += '<div style="color:#64748b;font-size:0.85rem;padding:6px;">なし</div>';
+    } else {
+      weekNewRankIn.forEach(function(item) {
+        const name = getStockName(item.code); const code = item.code.replace('TSE:', '');
+        html += '<div class="ranking-row new" style="margin-bottom:4px;">' +
+          '<div class="stock-info">' +
+            '<div class="stock-name">' + escapeHtml(name || code) + '</div>' +
+            (name ? '<div class="stock-code">' + escapeHtml(code) + '</div>' : '') +
+          '</div>' +
+          '<span style="color:#94a3b8;font-size:0.8rem;white-space:nowrap;">#' + item.rank + '&nbsp;(' + item.date.substring(5) + ')</span>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+
+    // ランクアウト列
+    html += '<div><div style="color:#ef4444;font-weight:bold;font-size:0.9rem;margin-bottom:8px;">🚪 ランクアウト</div>';
+    if (weekRankOut.length === 0) {
+      html += '<div style="color:#64748b;font-size:0.85rem;padding:6px;">なし</div>';
+    } else {
+      weekRankOut.forEach(function(item) {
+        const name = getStockName(item.code); const code = item.code.replace('TSE:', '');
+        html += '<div class="ranking-row rankout" style="margin-bottom:4px;">' +
+          '<div class="stock-info">' +
+            '<div class="stock-name">' + escapeHtml(name || code) + '</div>' +
+            (name ? '<div class="stock-code">' + escapeHtml(code) + '</div>' : '') +
+          '</div>' +
+          '<span style="color:#94a3b8;font-size:0.8rem;white-space:nowrap;">前日#' + item.prevRank + '&nbsp;(' + item.date.substring(5) + ')</span>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+
+    html += '</div></div>'; // two-col / card
   });
 
-  html += '</div></div><div><h3 style="color:#ef4444;">🚪 ランクアウト</h3><div class="scroll" style="max-height:300px;">';
-
-  const allRankOut = [];
-  Object.entries(signals).forEach(function(entry) {
-    const date = entry[0]; const sig = entry[1];
-    sig.rankOut.forEach(function(item) { allRankOut.push(Object.assign({}, item, { date: date })); });
-  });
-  allRankOut.forEach(function(item) {
-    const stockName = getStockName(item.code);
-    const cleanCode = item.code.replace('TSE:', '');
-    html += '<div style="padding:10px;background:rgba(51,65,85,0.5);border-radius:6px;margin-bottom:6px;"><div style="display:flex;justify-content:space-between;"><span style="font-weight:500;">' + escapeHtml(stockName || cleanCode) + '</span><span style="color:#94a3b8;font-size:0.8rem;">前日#' + item.prevRank + ' (' + item.date + ')</span></div>' + (stockName ? '<div style="font-size:0.75rem;color:#64748b;font-family:monospace;">' + escapeHtml(cleanCode) + '</div>' : '') + '</div>';
-  });
-
-  html += '</div></div></div></div>';
   return html;
 }
 
