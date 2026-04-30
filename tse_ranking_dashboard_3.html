@@ -203,10 +203,12 @@ const STOCK_NAMES = {
 // ============================================
 const STORAGE_DATA = 'tse_ranking_data_v2';
 const STORAGE_NAMES = 'tse_ranking_custom_names_v2';
+const STORAGE_GITHUB = 'tse_github_config_v1';
 
 let state = {
   data: loadFromStorage(STORAGE_DATA, {}),
   customStockNames: loadFromStorage(STORAGE_NAMES, {}),
+  githubConfig: loadFromStorage(STORAGE_GITHUB, { token: '', owner: 'fmky43', repo: 'ranking-app', enabled: false }),
   selectedDate: '',
   inputText: '',
   activeTab: 'input',
@@ -231,6 +233,62 @@ function saveToStorage(key, value) {
 function saveState() {
   saveToStorage(STORAGE_DATA, state.data);
   saveToStorage(STORAGE_NAMES, state.customStockNames);
+  saveToStorage(STORAGE_GITHUB, state.githubConfig);
+}
+
+// ============================================
+// GitHub API アップロード
+// ============================================
+async function uploadToGitHub() {
+  const cfg = state.githubConfig;
+  if (!cfg.enabled || !cfg.token || !cfg.owner || !cfg.repo) return;
+
+  showMessage('warning', '☁️ GitHubにアップロード中...', 0);
+
+  const path = 'data.json';
+  const apiUrl = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + path;
+  const headers = {
+    'Authorization': 'token ' + cfg.token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+
+  let sha;
+  try {
+    const getResp = await fetch(apiUrl, { headers: headers });
+    if (getResp.ok) { sha = (await getResp.json()).sha; }
+  } catch (e) {}
+
+  const now = new Date().toISOString().slice(0, 10);
+  const body = {
+    message: 'ランキングデータ更新 (' + now + ')',
+    content: btoa(unescape(encodeURIComponent(JSON.stringify(state.data, null, 2)))),
+    branch: 'main'
+  };
+  if (sha) body.sha = sha;
+
+  try {
+    const putResp = await fetch(apiUrl, { method: 'PUT', headers: headers, body: JSON.stringify(body) });
+    if (putResp.ok) {
+      showMessage('success', '✅ データを登録し、GitHubにアップロードしました');
+    } else {
+      const err = await putResp.json();
+      showMessage('error', 'GitHub失敗: ' + (err.message || '不明なエラー'), 6000);
+    }
+  } catch (e) {
+    showMessage('error', 'GitHub通信エラー: ' + e.message, 6000);
+  }
+}
+
+function saveGithubConfig() {
+  const token = document.getElementById('ghToken').value.trim();
+  const owner = document.getElementById('ghOwner').value.trim();
+  const repo = document.getElementById('ghRepo').value.trim();
+  const enabled = document.getElementById('ghEnabled').checked;
+  state.githubConfig = { token: token, owner: owner, repo: repo, enabled: enabled };
+  saveState();
+  showMessage('success', 'GitHub設定を保存しました');
+  renderContent();
 }
 
 // ============================================
@@ -542,12 +600,13 @@ function handleAddData() {
   state.selectedStocks = [];
   saveState();
 
-  if (overwritten) {
-    showMessage('warning', addedCount + '日分を追加（一部上書き）');
-  } else {
-    showMessage('success', addedCount + '日分のデータを追加しました');
-  }
+  const baseMsg = overwritten ? addedCount + '日分を追加（一部上書き）' : addedCount + '日分のデータを追加しました';
+  showMessage(overwritten ? 'warning' : 'success', baseMsg);
   render();
+
+  if (state.githubConfig.enabled && state.githubConfig.token) {
+    uploadToGitHub();
+  }
 }
 
 function handleDeleteDate(date) {
@@ -671,14 +730,36 @@ function renderModal() {
 }
 
 function renderInputTab() {
-  let html = '<div class="card"><h2>📅 日付選択</h2>' +
+  const cfg = state.githubConfig;
+  const ghStatusColor = cfg.enabled && cfg.token ? '#22c55e' : '#94a3b8';
+  const ghStatusText = cfg.enabled && cfg.token ? '✅ 有効（自動アップロードON）' : '無効（トークンを入力して有効化してください）';
+
+  let html = '<div class="card"><h2>⚙️ GitHub自動アップロード設定</h2>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
+      '<div style="flex:3;min-width:200px;"><label class="hint" style="display:block;margin-bottom:4px;">GitHubトークン</label>' +
+        '<input type="password" id="ghToken" value="' + escapeHtml(cfg.token) + '" placeholder="ghp_..."></div>' +
+      '<div style="flex:1;min-width:120px;"><label class="hint" style="display:block;margin-bottom:4px;">オーナー</label>' +
+        '<input type="text" id="ghOwner" value="' + escapeHtml(cfg.owner) + '" placeholder="fmky43"></div>' +
+      '<div style="flex:1;min-width:120px;"><label class="hint" style="display:block;margin-bottom:4px;">リポジトリ名</label>' +
+        '<input type="text" id="ghRepo" value="' + escapeHtml(cfg.repo) + '" placeholder="ranking-app"></div>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">' +
+      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.9rem;">' +
+        '<input type="checkbox" id="ghEnabled"' + (cfg.enabled ? ' checked' : '') + '> 自動アップロードを有効にする' +
+      '</label>' +
+      '<button class="btn btn-blue btn-sm" onclick="saveGithubConfig()">💾 設定保存</button>' +
+    '</div>' +
+    '<div class="hint" style="margin-top:10px;color:' + ghStatusColor + ';">' + ghStatusText + '</div>' +
+  '</div>';
+
+  html += '<div class="card"><h2>📅 日付選択（省略可）</h2>' +
     '<input type="date" id="dateInput" value="' + state.selectedDate.replace(/\//g, '-') + '">' +
-    '<div class="hint">※ 日付を選択するか、テキスト内に ###売買代金ランキング(YYYY/MM/DD) を記入してください</div></div>';
+    '<div class="hint">※ テキスト内に ###売買代金ランキング(YYYY/MM/DD) があれば日付の選択は不要。テキストを貼り付けると自動登録されます。</div></div>';
 
-  html += '<div class="card"><h2>TradingView形式テキスト</h2>' +
-    '<textarea id="textInput" placeholder="###売買代金ランキング(2026/04/21)&#10;TSE:285A,TSE:9984,...&#10;売買代金(百万円):814589,486485,...">' + escapeHtml(state.inputText) + '</textarea></div>';
+  html += '<div class="card"><h2>TradingView形式テキスト　<span style="font-size:0.8rem;color:#22c55e;font-weight:normal;">📋 貼り付けで自動登録</span></h2>' +
+    '<textarea id="textInput" placeholder="###売買代金ランキング(2026/04/29)&#10;TSE:285A,TSE:6857,TSE:9984&#10;売買代金(百万円):950413,596455,527165">' + escapeHtml(state.inputText) + '</textarea></div>';
 
-  html += '<button class="btn btn-primary" onclick="handleAddData()">✅ データ追加</button>';
+  html += '<button class="btn btn-primary" onclick="handleAddData()">✅ データ追加（手動）</button>';
 
   const dataKeys = Object.keys(state.data).sort();
   if (dataKeys.length > 0) {
@@ -890,6 +971,20 @@ function renderReportTab() {
   return html;
 }
 
+function attachInputListeners() {
+  var textInput = document.getElementById('textInput');
+  if (!textInput) return;
+  textInput.addEventListener('paste', function(e) {
+    e.preventDefault();
+    var pasted = (e.clipboardData || window.clipboardData).getData('text');
+    textInput.value = pasted;
+    var validation = validateFormat(pasted.trim());
+    if (validation.valid && validation.results.length > 0) {
+      setTimeout(handleAddData, 50);
+    }
+  });
+}
+
 function renderContent() {
   const content = document.getElementById('content');
   if (!content) return;
@@ -900,6 +995,9 @@ function renderContent() {
   else if (state.activeTab === 'stocktrack') html = renderStockTrackTab();
   else if (state.activeTab === 'report') html = renderReportTab();
   content.innerHTML = html;
+
+  // ペーストリスナーをアタッチ
+  if (state.activeTab === 'input') attachInputListeners();
 
   // チャート描画（次のtick）
   setTimeout(drawCharts, 50);
