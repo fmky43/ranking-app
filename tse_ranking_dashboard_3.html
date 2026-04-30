@@ -450,7 +450,7 @@ function detectSignals() {
 
 function getWeeklyReport(signals) {
   const sortedDates = Object.keys(state.data).sort();
-  if (sortedDates.length < 5) return null;
+  if (sortedDates.length === 0) return null;
   const lastDate = new Date(sortedDates[sortedDates.length - 1]);
   if (lastDate.getDay() !== 5) return null;
 
@@ -1009,7 +1009,7 @@ function renderReportTab() {
   const signals = detectSignals();
   const report = getWeeklyReport(signals);
   if (!report) {
-    return '<div class="empty-state">📊 金曜日のデータを入力すると、週間レポートが自動生成されます<br>（5日分以上のデータが必要で、最終日が金曜日である必要があります）</div>';
+    return '<div class="empty-state">📊 金曜日付のデータを入力すると、週間レポートが自動生成されます</div>';
   }
 
   let html = '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;"><h2 style="font-size:1.5rem;">📊 週間レポート</h2><p style="color:#cbd5e1;">期間：' + report.dates[0] + ' ～ ' + report.dates[report.dates.length - 1] + '</p></div>';
