@@ -458,7 +458,7 @@ function getWeekOfDates(referenceStr) {
   monday.setDate(ref.getDate() + diffToMon);
   const friday = new Date(monday);
   friday.setDate(monday.getDate() + 4);
-  function fmt(d) { return d.toISOString().slice(0, 10).replace(/-/g, '/'); }
+  function fmt(d) { return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0'); }
   return { monday: monday, friday: friday, weekStart: fmt(monday), weekEnd: fmt(friday) };
 }
 
