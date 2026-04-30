@@ -209,6 +209,7 @@ let state = {
   data: loadFromStorage(STORAGE_DATA, {}),
   customStockNames: loadFromStorage(STORAGE_NAMES, {}),
   githubConfig: loadFromStorage(STORAGE_GITHUB, { token: '', owner: 'fmky43', repo: 'ranking-app', enabled: false }),
+  githubLoading: false,
   selectedDate: '',
   inputText: '',
   activeTab: 'input',
@@ -237,43 +238,85 @@ function saveState() {
 }
 
 // ============================================
-// GitHub API アップロード
+// GitHub API（読み込み・保存）
 // ============================================
+function githubApiUrl() {
+  const cfg = state.githubConfig;
+  return 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/data.json';
+}
+
+function githubHeaders() {
+  return {
+    'Authorization': 'token ' + state.githubConfig.token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+}
+
+async function loadFromGitHub() {
+  const cfg = state.githubConfig;
+  if (!cfg.enabled || !cfg.token || !cfg.owner || !cfg.repo) return false;
+
+  state.githubLoading = true;
+  renderDataCount();
+
+  try {
+    const resp = await fetch(githubApiUrl(), { headers: githubHeaders() });
+    if (resp.ok) {
+      const file = await resp.json();
+      const raw = decodeURIComponent(escape(atob(file.content.replace(/\n/g, ''))));
+      const parsed = JSON.parse(raw);
+      // 新形式 { rankings, customNames } と旧形式（直接オブジェクト）の両方に対応
+      state.data = parsed.rankings || parsed;
+      state.customStockNames = parsed.customNames || state.customStockNames;
+      // ローカルキャッシュ更新
+      saveToStorage(STORAGE_DATA, state.data);
+      saveToStorage(STORAGE_NAMES, state.customStockNames);
+      state.githubLoading = false;
+      return true;
+    } else if (resp.status === 404) {
+      // data.json がまだ存在しない（新規リポジトリ）は正常
+      state.githubLoading = false;
+      return true;
+    } else {
+      state.githubLoading = false;
+      return false;
+    }
+  } catch (e) {
+    state.githubLoading = false;
+    return false;
+  }
+}
+
 async function uploadToGitHub() {
   const cfg = state.githubConfig;
   if (!cfg.enabled || !cfg.token || !cfg.owner || !cfg.repo) return;
 
-  showMessage('warning', '☁️ GitHubにアップロード中...', 0);
+  showMessage('warning', '☁️ GitHubに保存中...', 0);
 
-  const path = 'data.json';
-  const apiUrl = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + path;
-  const headers = {
-    'Authorization': 'token ' + cfg.token,
-    'Content-Type': 'application/json',
-    'Accept': 'application/vnd.github.v3+json'
-  };
-
+  // 現在のファイルの SHA を取得（更新に必要）
   let sha;
   try {
-    const getResp = await fetch(apiUrl, { headers: headers });
+    const getResp = await fetch(githubApiUrl(), { headers: githubHeaders() });
     if (getResp.ok) { sha = (await getResp.json()).sha; }
   } catch (e) {}
 
+  const payload = { rankings: state.data, customNames: state.customStockNames };
   const now = new Date().toISOString().slice(0, 10);
   const body = {
-    message: 'ランキングデータ更新 (' + now + ')',
-    content: btoa(unescape(encodeURIComponent(JSON.stringify(state.data, null, 2)))),
+    message: 'データ更新 (' + now + ')',
+    content: btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2)))),
     branch: 'main'
   };
   if (sha) body.sha = sha;
 
   try {
-    const putResp = await fetch(apiUrl, { method: 'PUT', headers: headers, body: JSON.stringify(body) });
+    const putResp = await fetch(githubApiUrl(), { method: 'PUT', headers: githubHeaders(), body: JSON.stringify(body) });
     if (putResp.ok) {
-      showMessage('success', '✅ データを登録し、GitHubにアップロードしました');
+      showMessage('success', '✅ GitHubに保存しました');
     } else {
       const err = await putResp.json();
-      showMessage('error', 'GitHub失敗: ' + (err.message || '不明なエラー'), 6000);
+      showMessage('error', 'GitHub保存失敗: ' + (err.message || '不明なエラー'), 6000);
     }
   } catch (e) {
     showMessage('error', 'GitHub通信エラー: ' + e.message, 6000);
@@ -287,8 +330,24 @@ function saveGithubConfig() {
   const enabled = document.getElementById('ghEnabled').checked;
   state.githubConfig = { token: token, owner: owner, repo: repo, enabled: enabled };
   saveState();
-  showMessage('success', 'GitHub設定を保存しました');
-  renderContent();
+  if (enabled && token) {
+    showMessage('warning', '☁️ GitHubからデータを読み込み中...', 0);
+    loadFromGitHub().then(function(ok) {
+      showMessage(ok ? 'success' : 'error', ok ? 'GitHubからデータを読み込みました' : 'GitHub読み込み失敗。設定を確認してください', 5000);
+      render();
+    });
+  } else {
+    showMessage('success', 'GitHub設定を保存しました');
+    renderContent();
+  }
+}
+
+function reloadFromGitHub() {
+  showMessage('warning', '☁️ GitHubからデータを再読み込み中...', 0);
+  loadFromGitHub().then(function(ok) {
+    showMessage(ok ? 'success' : 'error', ok ? 'GitHubからデータを再読み込みしました' : 'GitHub読み込み失敗', 5000);
+    render();
+  });
 }
 
 // ============================================
@@ -603,10 +662,7 @@ function handleAddData() {
   const baseMsg = overwritten ? addedCount + '日分を追加（一部上書き）' : addedCount + '日分のデータを追加しました';
   showMessage(overwritten ? 'warning' : 'success', baseMsg);
   render();
-
-  if (state.githubConfig.enabled && state.githubConfig.token) {
-    uploadToGitHub();
-  }
+  uploadToGitHub();
 }
 
 function handleDeleteDate(date) {
@@ -615,6 +671,7 @@ function handleDeleteDate(date) {
     state.selectedStocks = [];
     saveState();
     render();
+    uploadToGitHub();
   }
 }
 
@@ -624,6 +681,7 @@ function handleClearAll() {
     state.selectedStocks = [];
     saveState();
     render();
+    uploadToGitHub();
   }
 }
 
@@ -650,6 +708,7 @@ function saveCustomName() {
     closeModal();
     showMessage('success', cleanCode + ' を「' + name + '」として登録しました');
     render();
+    uploadToGitHub();
   }
 }
 
@@ -657,6 +716,7 @@ function deleteCustomName(code) {
   delete state.customStockNames[code];
   saveState();
   render();
+  uploadToGitHub();
 }
 
 function setActiveTab(tab) {
@@ -698,8 +758,10 @@ function renderMessage() {
 function renderDataCount() {
   const el = document.getElementById('dataCount');
   if (!el) return;
+  if (state.githubLoading) { el.textContent = '⏳ GitHubから読み込み中...'; return; }
   const count = Object.keys(state.data).length;
-  el.textContent = count > 0 ? '💾 ' + count + '日分' : '💾 データなし';
+  const githubOn = state.githubConfig.enabled && state.githubConfig.token;
+  el.textContent = count > 0 ? (githubOn ? '☁️ ' : '💾 ') + count + '日分' : (githubOn ? '☁️ データなし' : '💾 データなし');
 }
 
 function renderModal() {
@@ -745,9 +807,10 @@ function renderInputTab() {
     '</div>' +
     '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">' +
       '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.9rem;">' +
-        '<input type="checkbox" id="ghEnabled"' + (cfg.enabled ? ' checked' : '') + '> 自動アップロードを有効にする' +
+        '<input type="checkbox" id="ghEnabled"' + (cfg.enabled ? ' checked' : '') + '> 有効にする（データの読み込み・保存をGitHubで行う）' +
       '</label>' +
       '<button class="btn btn-blue btn-sm" onclick="saveGithubConfig()">💾 設定保存</button>' +
+      (cfg.enabled && cfg.token ? '<button class="btn btn-gray btn-sm" onclick="reloadFromGitHub()">🔄 GitHubから再読み込み</button>' : '') +
     '</div>' +
     '<div class="hint" style="margin-top:10px;color:' + ghStatusColor + ';">' + ghStatusText + '</div>' +
   '</div>';
@@ -1084,13 +1147,28 @@ function render() {
 // ============================================
 // 初期化
 // ============================================
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
   document.querySelectorAll('.tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
       setActiveTab(tab.dataset.tab);
     });
   });
+
+  // まずローカルキャッシュで即時表示
   render();
+
+  // GitHub が有効なら起動時に最新データをフェッチ
+  const cfg = state.githubConfig;
+  if (cfg.enabled && cfg.token && cfg.owner && cfg.repo) {
+    showMessage('warning', '☁️ GitHubからデータを読み込み中...', 0);
+    const ok = await loadFromGitHub();
+    if (ok) {
+      showMessage('success', 'GitHubからデータを読み込みました', 3000);
+    } else {
+      showMessage('error', 'GitHub読み込み失敗。ローカルキャッシュを表示しています', 5000);
+    }
+    render();
+  }
 
   // ウィンドウリサイズ時にチャート再描画
   window.addEventListener('resize', function() {
