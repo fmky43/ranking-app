@@ -204,11 +204,14 @@ const STOCK_NAMES = {
 const STORAGE_DATA = 'tse_ranking_data_v2';
 const STORAGE_NAMES = 'tse_ranking_custom_names_v2';
 const STORAGE_GITHUB = 'tse_github_config_v1';
+const STORAGE_REPORTS = 'tse_saved_reports_v1';
 
 let state = {
   data: loadFromStorage(STORAGE_DATA, {}),
   customStockNames: loadFromStorage(STORAGE_NAMES, {}),
   githubConfig: loadFromStorage(STORAGE_GITHUB, { token: '', owner: 'fmky43', repo: 'ranking-app', enabled: false }),
+  savedReports: loadFromStorage(STORAGE_REPORTS, []),
+  openReportIds: [],
   githubLoading: false,
   reportGenerated: false,
   reportData: null,
@@ -237,6 +240,7 @@ function saveState() {
   saveToStorage(STORAGE_DATA, state.data);
   saveToStorage(STORAGE_NAMES, state.customStockNames);
   saveToStorage(STORAGE_GITHUB, state.githubConfig);
+  saveToStorage(STORAGE_REPORTS, state.savedReports);
 }
 
 // ============================================
@@ -271,9 +275,11 @@ async function loadFromGitHub() {
       // 新形式 { rankings, customNames } と旧形式（直接オブジェクト）の両方に対応
       state.data = parsed.rankings || parsed;
       state.customStockNames = parsed.customNames || state.customStockNames;
+      state.savedReports = parsed.savedReports || state.savedReports;
       // ローカルキャッシュ更新
       saveToStorage(STORAGE_DATA, state.data);
       saveToStorage(STORAGE_NAMES, state.customStockNames);
+      saveToStorage(STORAGE_REPORTS, state.savedReports);
       state.githubLoading = false;
       return true;
     } else if (resp.status === 404) {
@@ -303,7 +309,7 @@ async function uploadToGitHub() {
     if (getResp.ok) { sha = (await getResp.json()).sha; }
   } catch (e) {}
 
-  const payload = { rankings: state.data, customNames: state.customStockNames };
+  const payload = { rankings: state.data, customNames: state.customStockNames, savedReports: state.savedReports };
   const now = new Date().toISOString().slice(0, 10);
   const body = {
     message: 'データ更新 (' + now + ')',
@@ -1040,56 +1046,171 @@ function generateReport() {
   renderContent();
 }
 
-function renderReportTab() {
-  const allDates = Object.keys(state.data).sort();
-  if (allDates.length === 0) {
-    return '<div class="empty-state">📥 まずデータを入力してください</div>';
+function saveCurrentReport() {
+  if (!state.reportData) return;
+  const r = state.reportData;
+  const now = new Date();
+  const savedAt = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0') + '/' + String(now.getDate()).padStart(2,'0');
+  const entry = {
+    id: r.weekStart,
+    weekStart: r.weekStart,
+    weekEnd: r.weekEnd,
+    savedAt: savedAt,
+    dates: r.dates,
+    newRankIn: r.newRankIn,
+    rankOut: r.rankOut,
+    volumeIncrease: r.volumeIncrease,
+    continueCodes: r.continueCodes
+  };
+  const idx = state.savedReports.findIndex(function(s) { return s.id === entry.id; });
+  if (idx >= 0) {
+    state.savedReports[idx] = entry;
+    showMessage('success', 'レポートを上書き保存しました');
+  } else {
+    state.savedReports.unshift(entry);
+    showMessage('success', 'レポートを保存しました');
+  }
+  saveState();
+  uploadToGitHub();
+  renderContent();
+}
+
+function toggleReport(id) {
+  const idx = state.openReportIds.indexOf(id);
+  if (idx >= 0) {
+    state.openReportIds.splice(idx, 1);
+  } else {
+    state.openReportIds.push(id);
+  }
+  renderContent();
+}
+
+function deleteSavedReport(id) {
+  if (!confirm('このレポートを削除しますか？')) return;
+  state.savedReports = state.savedReports.filter(function(r) { return r.id !== id; });
+  saveState();
+  uploadToGitHub();
+  renderContent();
+}
+
+function renderSavedReportBody(report) {
+  var html = '<div class="stat-grid" style="margin-bottom:16px;">' +
+    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + report.newRankIn.length + '</div><div class="stat-label">新規ランクイン</div></div>' +
+    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + report.rankOut.length + '</div><div class="stat-label">ランクアウト</div></div>' +
+    '<div class="stat-card stat-green"><div class="stat-number" style="color:#22c55e;">' + report.volumeIncrease.length + '</div><div class="stat-label">売買代金↑10%以上</div></div>' +
+    '</div>';
+
+  if (report.newRankIn.length > 0) {
+    html += '<div style="margin-bottom:12px;"><div style="color:#fbbf24;font-weight:bold;margin-bottom:6px;">🆕 新規ランクイン</div>';
+    report.newRankIn.forEach(function(item) {
+      var name = getStockName(item.code);
+      var code = item.code.replace('TSE:', '');
+      html += '<div class="ranking-row" style="margin-bottom:4px;"><span class="rank-number">#' + item.rank + '</span>' +
+        '<div class="stock-info"><div class="stock-name">' + escapeHtml(name || code) + '</div>' + (name ? '<div class="stock-code">' + escapeHtml(code) + '</div>' : '') + '</div>' +
+        '<span style="color:#94a3b8;font-size:0.8rem;">' + item.date + '</span></div>';
+    });
+    html += '</div>';
   }
 
-  if (!state.reportGenerated) {
-    // ボタン画面：対象週を事前に表示
+  if (report.rankOut.length > 0) {
+    html += '<div style="margin-bottom:12px;"><div style="color:#ef4444;font-weight:bold;margin-bottom:6px;">🚪 ランクアウト</div>';
+    report.rankOut.forEach(function(item) {
+      var name = getStockName(item.code);
+      var code = item.code.replace('TSE:', '');
+      html += '<div class="ranking-row rankout" style="margin-bottom:4px;"><div class="stock-info"><div class="stock-name">' + escapeHtml(name || code) + '</div>' + (name ? '<div class="stock-code">' + escapeHtml(code) + '</div>' : '') + '</div>' +
+        '<span style="color:#94a3b8;font-size:0.8rem;">前日#' + item.prevRank + ' (' + item.date + ')</span></div>';
+    });
+    html += '</div>';
+  }
+
+  var topIncrease = report.volumeIncrease.slice().sort(function(a,b){ return parseFloat(b.increase)-parseFloat(a.increase); }).slice(0,5);
+  if (topIncrease.length > 0) {
+    html += '<div><div style="color:#22c55e;font-weight:bold;margin-bottom:6px;">📈 最大変動銘柄 TOP5</div>';
+    topIncrease.forEach(function(item) {
+      var name = getStockName(item.code);
+      var code = item.code.replace('TSE:', '');
+      html += '<div class="ranking-row" style="margin-bottom:4px;"><div class="stock-info"><div class="stock-name">' + escapeHtml(name || code) + '</div>' + (name ? '<div class="stock-code">' + escapeHtml(code) + '</div>' : '') + '</div>' +
+        '<div style="display:flex;gap:10px;align-items:center;"><span style="color:#94a3b8;font-size:0.8rem;">' + item.date + '</span><span style="color:#22c55e;font-weight:bold;">↑' + item.increase + '%</span></div></div>';
+    });
+    html += '</div>';
+  }
+
+  return html;
+}
+
+function renderReportTab() {
+  const allDates = Object.keys(state.data).sort();
+  let html = '';
+
+  // ===== 今週レポート生成エリア =====
+  if (allDates.length === 0) {
+    html += '<div class="empty-state">📥 まずデータを入力してください</div>';
+  } else if (!state.reportGenerated) {
     const week = getWeekOfDates(allDates[allDates.length - 1]);
     const weekCount = allDates.filter(function(d) {
       const dt = new Date(d.replace(/\//g, '-') + 'T00:00:00');
       return dt >= week.monday && dt <= week.friday;
     }).length;
-    return '<div class="card" style="text-align:center;padding:48px 24px;">' +
+    html += '<div class="card" style="text-align:center;padding:48px 24px;">' +
       '<div style="font-size:3rem;margin-bottom:16px;">📊</div>' +
       '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:6px;">対象週</p>' +
       '<p style="color:#fbbf24;font-size:1.2rem;font-weight:bold;margin-bottom:8px;">' + week.weekStart + ' ～ ' + week.weekEnd + '</p>' +
       '<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:28px;">この週のデータ：' + weekCount + '日分</p>' +
       '<button class="btn btn-primary" style="max-width:280px;margin:0 auto;" onclick="generateReport()">週間レポートを生成する</button>' +
       '</div>';
+  } else {
+    const report = state.reportData;
+    if (report) {
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' +
+        '<button class="btn btn-gray btn-sm" onclick="state.reportGenerated=false;state.reportData=null;renderContent()">🔄 再生成</button>' +
+        '<button class="btn btn-blue btn-sm" onclick="saveCurrentReport()">📥 このレポートを保存する</button>' +
+        '</div>';
+      html += '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;">' +
+        '<h2 style="font-size:1.5rem;">📊 週間レポート</h2>' +
+        '<p style="color:#cbd5e1;">対象週：' + report.weekStart + ' ～ ' + report.weekEnd + '（' + report.dates.length + '日分）</p>' +
+        '</div>';
+      html += '<div class="stat-grid">' +
+        '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + report.newRankIn.length + '</div><div class="stat-label">新規ランクイン</div></div>' +
+        '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + report.rankOut.length + '</div><div class="stat-label">ランクアウト</div></div>' +
+        '<div class="stat-card stat-green"><div class="stat-number" style="color:#22c55e;">' + report.volumeIncrease.length + '</div><div class="stat-label">売買代金↑10%以上</div></div>' +
+        '</div>';
+      html += '<div class="card"><h3>売買代金トレンド</h3><div class="chart-container" id="chart-report-total" style="height:260px;"></div></div>';
+      html += '<div class="card"><h3>最大変動銘柄 TOP 5</h3>';
+      const topIncrease = report.volumeIncrease.slice().sort(function(a,b){ return parseFloat(b.increase)-parseFloat(a.increase); }).slice(0,5);
+      topIncrease.forEach(function(item) {
+        const name = getStockName(item.code); const code = item.code.replace('TSE:','');
+        html += '<div class="ranking-row" style="margin-bottom:8px;"><div class="stock-info"><div class="stock-name">' + escapeHtml(name||code) + '</div>' + (name?'<div class="stock-code">'+escapeHtml(code)+'</div>':'') + '</div><div style="display:flex;gap:12px;align-items:center;"><span style="color:#94a3b8;font-size:0.85rem;">' + item.date + '</span><span style="color:#22c55e;font-weight:bold;">↑' + item.increase + '%</span></div></div>';
+      });
+      html += '</div>';
+    }
   }
 
-  const report = state.reportData;
-  if (!report) return '<div class="empty-state">レポートを生成できませんでした</div>';
-
-  let html = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
-    '<button class="btn btn-gray btn-sm" onclick="state.reportGenerated=false;state.reportData=null;renderContent()">🔄 再生成</button>' +
-    '</div>';
-
-  html += '<div class="card" style="background:linear-gradient(to right,rgba(22,101,52,0.25),rgba(30,64,175,0.25));border-color:#16a34a;">' +
-    '<h2 style="font-size:1.5rem;">📊 週間レポート</h2>' +
-    '<p style="color:#cbd5e1;">対象週：' + report.weekStart + ' ～ ' + report.weekEnd + '（' + report.dates.length + '日分）</p>' +
-    '</div>';
-
-  html += '<div class="stat-grid">' +
-    '<div class="stat-card stat-yellow"><div class="stat-number" style="color:#fbbf24;">' + report.newRankIn.length + '</div><div class="stat-label">新規ランクイン</div></div>' +
-    '<div class="stat-card stat-red"><div class="stat-number" style="color:#ef4444;">' + report.rankOut.length + '</div><div class="stat-label">ランクアウト</div></div>' +
-    '<div class="stat-card stat-green"><div class="stat-number" style="color:#22c55e;">' + report.volumeIncrease.length + '</div><div class="stat-label">売買代金↑10%以上</div></div>' +
-    '</div>';
-
-  html += '<div class="card"><h3>売買代金トレンド</h3><div class="chart-container" id="chart-report-total" style="height:260px;"></div></div>';
-
-  const topIncrease = report.volumeIncrease.slice().sort(function(a, b) { return parseFloat(b.increase) - parseFloat(a.increase); }).slice(0, 5);
-  html += '<div class="card"><h3>最大変動銘柄 TOP 5</h3>';
-  topIncrease.forEach(function(item) {
-    const stockName = getStockName(item.code);
-    const cleanCode = item.code.replace('TSE:', '');
-    html += '<div class="ranking-row" style="margin-bottom:8px;"><div class="stock-info"><div class="stock-name">' + escapeHtml(stockName || cleanCode) + '</div>' + (stockName ? '<div class="stock-code">' + escapeHtml(cleanCode) + '</div>' : '') + '</div><div style="display:flex;gap:12px;align-items:center;"><span style="color:#94a3b8;font-size:0.85rem;">' + item.date + '</span><span style="color:#22c55e;font-weight:bold;">↑' + item.increase + '%</span></div></div>';
-  });
-  html += '</div>';
+  // ===== 保存済みレポート一覧（アコーディオン） =====
+  if (state.savedReports.length > 0) {
+    html += '<div class="card" style="margin-top:8px;"><div class="flex-between" style="margin-bottom:16px;"><h2>📁 保存済みレポート（' + state.savedReports.length + '件）</h2></div>';
+    state.savedReports.forEach(function(r) {
+      const isOpen = state.openReportIds.indexOf(r.id) >= 0;
+      const alreadySaved = true;
+      html += '<div style="border:1px solid #334155;border-radius:8px;margin-bottom:8px;overflow:hidden;">';
+      // ヘッダー行（常に表示）
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:rgba(51,65,85,0.4);">' +
+        '<div>' +
+          '<span style="font-weight:bold;color:#fbbf24;">' + r.weekStart + ' ～ ' + r.weekEnd + '</span>' +
+          '<span style="font-size:0.75rem;color:#64748b;margin-left:10px;">保存日: ' + r.savedAt + ' ／ ' + r.dates.length + '日分</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;">' +
+          '<button class="btn btn-sm ' + (isOpen ? 'btn-gray' : 'btn-blue') + '" onclick="toggleReport(\'' + r.id + '\')">' + (isOpen ? '閉じる' : '開く') + '</button>' +
+          '<button class="btn btn-sm btn-red" onclick="deleteSavedReport(\'' + r.id + '\')">削除</button>' +
+        '</div>' +
+      '</div>';
+      // コンテンツ（開いているときのみ表示）
+      if (isOpen) {
+        html += '<div style="padding:16px;border-top:1px solid #334155;">' + renderSavedReportBody(r) + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
 
   return html;
 }
